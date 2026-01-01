@@ -25,9 +25,9 @@ Start Boosting Hours: Select a game and click "Start Idle Boost".
 Play: Always click "Stop Boost" before actually playing the game to restore the original files.
 
 🔗 Useful Links
-Steam Web API: Get your API key to sync playtime.
+Steam Web API: https://steamcommunity.com/dev/apikey
 
-SteamDB: Use this to find AppIDs or verify game executable names.
+SteamDB: https://steamdb.info/
 
 ⚠️ Disclaimer & Safety
 Use at your own risk: This tool modifies local game files by renaming executables. While it does not modify game memory or inject code, always ensure you "Stop Boost" or use the 'Repair Files' button before joining VAC-secured servers.
