@@ -9,6 +9,7 @@ using System.Text.Json.Nodes;
 using System.Linq;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using System;
 
 namespace WpfApp2
 {
@@ -17,31 +18,34 @@ namespace WpfApp2
         private const string SaveFile = "games.json";
         private readonly HttpClient _httpClient = new HttpClient();
 
-        public List<SteamGame> GetInstalledGames()
+        public async Task<List<SteamGame>> GetInstalledGamesAsync()
         {
-            var games = new List<SteamGame>();
-            string steamPath = GetSteamPath();
-
-            if (string.IsNullOrEmpty(steamPath)) return games;
-
-            var libraryFolders = GetLibraryFolders(steamPath);
-            foreach (var libFolder in libraryFolders)
+            return await Task.Run(() =>
             {
-                string steamAppsPath = Path.Combine(libFolder, "steamapps");
-                if (!Directory.Exists(steamAppsPath)) continue;
+                var games = new List<SteamGame>();
+                string steamPath = GetSteamPath();
 
-                foreach (var file in Directory.GetFiles(steamAppsPath, "appmanifest_*.acf"))
+                if (string.IsNullOrEmpty(steamPath)) return games;
+
+                var libraryFolders = GetLibraryFolders(steamPath);
+                foreach (var libFolder in libraryFolders)
                 {
-                    try
+                    string steamAppsPath = Path.Combine(libFolder, "steamapps");
+                    if (!Directory.Exists(steamAppsPath)) continue;
+
+                    foreach (var file in Directory.GetFiles(steamAppsPath, "appmanifest_*.acf"))
                     {
-                        var game = ParseManifest(file, libFolder);
-                        if (game != null && !games.Any(g => g.AppId == game.AppId))
-                            games.Add(game);
+                        try
+                        {
+                            var game = ParseManifest(file, libFolder);
+                            if (game != null && !games.Any(g => g.AppId == game.AppId))
+                                games.Add(game);
+                        }
+                        catch { }
                     }
-                    catch { }
                 }
-            }
-            return games.OrderBy(g => g.Name).ToList();
+                return games.OrderBy(g => g.Name).ToList();
+            });
         }
 
         private SteamGame ParseManifest(string filePath, string libraryPath)
@@ -69,7 +73,6 @@ namespace WpfApp2
 
             try
             {
-                // Force HTTPS
                 string url = $"https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key={key}&steamid={steamId}&format=json&include_played_free_games=1";
                 string json = await _httpClient.GetStringAsync(url);
 
@@ -94,24 +97,27 @@ namespace WpfApp2
             catch { }
         }
 
-        public void RefreshPlaytime(List<SteamGame> games, string steamPath = null)
+        public async Task RefreshPlaytimeLocalAsync(List<SteamGame> games)
         {
-            if (steamPath == null) steamPath = GetSteamPath();
-            if (string.IsNullOrEmpty(steamPath)) return;
-
-            try
+            await Task.Run(() =>
             {
-                string userDataPath = Path.Combine(steamPath, "userdata");
-                if (Directory.Exists(userDataPath))
+                string steamPath = GetSteamPath();
+                if (string.IsNullOrEmpty(steamPath)) return;
+
+                try
                 {
-                    foreach (var userDir in Directory.GetDirectories(userDataPath))
+                    string userDataPath = Path.Combine(steamPath, "userdata");
+                    if (Directory.Exists(userDataPath))
                     {
-                        string configPath = Path.Combine(userDir, "config", "localconfig.vdf");
-                        if (File.Exists(configPath)) ApplyPlaytimeStats(configPath, games);
+                        foreach (var userDir in Directory.GetDirectories(userDataPath))
+                        {
+                            string configPath = Path.Combine(userDir, "config", "localconfig.vdf");
+                            if (File.Exists(configPath)) ApplyPlaytimeStats(configPath, games);
+                        }
                     }
                 }
-            }
-            catch { }
+                catch { }
+            });
         }
 
         private void ApplyPlaytimeStats(string configPath, List<SteamGame> games)
@@ -157,36 +163,44 @@ namespace WpfApp2
             catch { return false; }
         }
 
-        public void SaveGamesToDisk(List<SteamGame> games)
+        // --- ASYNC SAVING (Fixes Stutter) ---
+        public async Task SaveGamesToDiskAsync(List<SteamGame> games)
         {
-            try { File.WriteAllText(SaveFile, JsonSerializer.Serialize(games)); } catch { }
+            try
+            {
+                string json = JsonSerializer.Serialize(games, new JsonSerializerOptions { WriteIndented = true });
+                await File.WriteAllTextAsync(SaveFile, json);
+            }
+            catch { }
         }
 
-        public List<SteamGame> LoadGamesFromDisk()
+        public async Task<List<SteamGame>> LoadGamesFromDiskAsync()
         {
             if (!File.Exists(SaveFile)) return new List<SteamGame>();
             try
             {
-                return JsonSerializer.Deserialize<List<SteamGame>>(File.ReadAllText(SaveFile)) ?? new List<SteamGame>();
+                string json = await File.ReadAllTextAsync(SaveFile);
+                return JsonSerializer.Deserialize<List<SteamGame>>(json) ?? new List<SteamGame>();
             }
             catch { return new List<SteamGame>(); }
         }
 
         private string GetSteamPath()
         {
+            // Try 64-bit registry first
             object regVal64 = Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Valve\Steam", "InstallPath", null);
-            string regPath = regVal64 as string;
-            if (regPath == null)
-            {
-                object regVal32 = Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamPath", null);
-                regPath = regVal32 as string;
-            }
-            return regPath?.Replace("/", "\\");
+            if (regVal64 is string path64) return path64.Replace("/", "\\");
+
+            // Try 32-bit registry
+            object regVal32 = Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamPath", null);
+            if (regVal32 is string path32) return path32.Replace("/", "\\");
+
+            return null;
         }
 
         private HashSet<string> GetLibraryFolders(string steamPath)
         {
-            var folders = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase) { steamPath };
+            var folders = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { steamPath };
             string vdfPath = Path.Combine(steamPath, "steamapps", "libraryfolders.vdf");
             if (File.Exists(vdfPath))
             {

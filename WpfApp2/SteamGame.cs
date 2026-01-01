@@ -62,5 +62,7 @@ namespace WpfApp2
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
         }
+
+
     }
 }
