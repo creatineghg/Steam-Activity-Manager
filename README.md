@@ -1,14 +1,13 @@
-# Steam Activity Manager (v0.3)
+# Steam Activity Manager
 
 **Steam Activity Manager** is a modern, lightweight utility for Windows designed to manage your Steam game activity. It allows you to log playtime hours for any installed game without keeping the actual heavy game executable running, using a resource-efficient method.
 
 ## 🌟 Key Features
 
-* **Efficient Activity Tracking**: Log hours with ~0% CPU/GPU usage by running a lightweight dummy process instead of the full game.
+* **Efficient Activity Tracking**: Log hours with ~0% CPU/GPU usage by running a cmd instead of the full game.
 * **Safe & Reversible**: Automatically handles file swapping and restoration.
-* **Auto-Restoration**: Detects when you want to play the real game and restores original files instantly.
 * **Library Management**: Filter games, view hidden ones, and mark utilities.
-* **Modern UI**: Sleek, dark-themed interface built with WPF UI.
+* **Modern UI**: Sleek, mica-themed interface built with WPF UI.
 
 ## 🛠️ Setup Guide (Step-by-Step)
 
@@ -50,14 +49,9 @@ This is your unique 17-digit user identifier.
 ## ⚠️ Important Notes
 
 * **Safety**: This tool uses a file-swapping method (replacing the game exe with a lightweight cmd). While generally safe, **use at your own risk**.
-* **VAC Games**: We recommend **stopping activity** manually before launching any VAC-secured multiplayer game to ensure all files are verified correctly before the anti-cheat loads.
 
 ## 📦 Installation
 
 1.  Download the latest release from the [GitHub Releases](https://github.com/creatineghg/Steam-Hour-Manager/releases).
-2.  Extract the zip file.
-3.  Run `SteamActivityManager.exe`.
+2.  Run `SteamActivityManager.msi`
 4.  Ensure Steam is running.
-
----
-*Created by [CreatineGHG](https://github.com/creatineghg/Steam-Hour-Manager)*
