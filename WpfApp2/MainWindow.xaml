@@ -4,19 +4,26 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        xmlns:local="clr-namespace:WpfApp2"
         mc:Ignorable="d"
         Title="Steam Activity Manager" 
         Height="800" Width="1280"
         WindowStartupLocation="CenterScreen"
         WindowState="Maximized" 
-        ExtendsContentIntoTitleBar="True">
+        ExtendsContentIntoTitleBar="True"
+        WindowBackdropType="Mica"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
 
     <ui:FluentWindow.Resources>
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+        <local:AspectRatioConverter x:Key="AspectRatioConverter"/>
 
-        <SolidColorBrush x:Key="BgDark" Color="#121212"/>
-        <SolidColorBrush x:Key="BgPanel" Color="#1e1e1e"/>
-        <SolidColorBrush x:Key="BgCard" Color="#252525"/>
+        <SolidColorBrush x:Key="BgDark" Color="Transparent"/>
+        <SolidColorBrush x:Key="BgPanel" Color="#05FFFFFF"/>
+        <SolidColorBrush x:Key="BgCard" Color="#40202020"/>
+        <SolidColorBrush x:Key="BgOverlay" Color="#E6121212"/>
+
         <SolidColorBrush x:Key="AccentColor" Color="#4cc2ff"/>
         <SolidColorBrush x:Key="ActivityColor" Color="#2d8f38"/>
         <SolidColorBrush x:Key="TextMuted" Color="#999999"/>
@@ -39,7 +46,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#333"/>
+                                <Setter Property="Background" Value="#15FFFFFF"/>
                                 <Setter Property="Foreground" Value="White"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -72,12 +79,12 @@
         </Style>
 
         <Style x:Key="SecondaryButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="#2d2d2d"/>
+            <Setter Property="Background" Value="#20FFFFFF"/>
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="FontWeight" Value="Medium"/>
             <Setter Property="Padding" Value="15,8"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BorderBrush" Value="#444"/>
+            <Setter Property="BorderBrush" Value="#30FFFFFF"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
@@ -87,8 +94,8 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#3d3d3d"/>
-                                <Setter Property="BorderBrush" Value="#666"/>
+                                <Setter Property="Background" Value="#30FFFFFF"/>
+                                <Setter Property="BorderBrush" Value="#50FFFFFF"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -97,13 +104,15 @@
         </Style>
 
         <Style TargetType="{x:Type ContextMenu}">
-            <Setter Property="Background" Value="#252525"/>
-            <Setter Property="BorderBrush" Value="#444"/>
+            <Setter Property="Background" Value="#F0202020"/>
+            <Setter Property="BorderBrush" Value="#30FFFFFF"/>
+            <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Foreground" Value="White"/>
+            <Setter Property="HasDropShadow" Value="True"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="{x:Type ContextMenu}">
-                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="5">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="5">
                             <StackPanel IsItemsHost="True"/>
                         </Border>
                     </ControlTemplate>
@@ -125,7 +134,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsHighlighted" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#404040"/>
+                                <Setter TargetName="Bd" Property="Background" Value="#30FFFFFF"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -136,6 +145,7 @@
         <Style TargetType="ComboBoxItem">
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="Background" Value="#252525"/>
+            <Setter Property="BorderThickness" Value="0"/>
         </Style>
     </ui:FluentWindow.Resources>
 
@@ -145,7 +155,7 @@
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <Border Grid.Column="0" Background="{StaticResource BgPanel}" BorderBrush="#333" BorderThickness="0,0,1,0">
+        <Border Grid.Column="0" Background="{StaticResource BgPanel}" BorderBrush="#20FFFFFF" BorderThickness="0,0,1,0">
             <Grid x:Name="SidebarGrid" Width="60">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -201,7 +211,7 @@
             </Grid>
         </Border>
 
-        <Grid Grid.Column="1">
+        <Grid x:Name="MainContentGrid" Grid.Column="1">
             <Grid.RowDefinitions>
                 <RowDefinition Height="40"/>
                 <RowDefinition Height="*"/>
@@ -223,25 +233,147 @@
 
                     <ui:TextBox x:Name="SearchBox" PlaceholderText="Search library..." TextChanged="Filter_TextChanged" VerticalAlignment="Center" Height="40" FontSize="14" Icon="Search24"/>
 
-                    <ComboBox x:Name="SortComboBox" Grid.Column="1" Width="180" Margin="15,0,0,0" SelectionChanged="Sort_SelectionChanged" SelectedIndex="0" VerticalAlignment="Center" Height="40" Foreground="White">
+                    <ComboBox x:Name="SortComboBox" Grid.Column="1" Width="180" Margin="15,0,0,0" 
+          SelectedIndex="0" VerticalAlignment="Center" Height="40" Foreground="White"
+          SelectionChanged="Sort_SelectionChanged">
+
+                        <ComboBox.Resources>
+                            <Style TargetType="ComboBoxItem">
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ComboBoxItem">
+                                            <Border x:Name="ItemBorder" Padding="10,8" Background="Transparent" CornerRadius="4" Margin="2">
+                                                <ContentPresenter VerticalAlignment="Center" />
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="ItemBorder" Property="Background" Value="#3FFFFFFF"/>
+                                                </Trigger>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="ItemBorder" Property="Background" Value="#2FFFFFFF"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+
+                            <ControlTemplate x:Key="ComboBoxToggleButton" TargetType="ToggleButton">
+                                <Border x:Name="Border" 
+                    Background="{TemplateBinding Background}" 
+                    BorderBrush="{TemplateBinding BorderBrush}" 
+                    BorderThickness="1" 
+                    CornerRadius="8">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="30"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <Path Grid.Column="1" Data="M0,0 L5,5 L10,0" Stroke="White" StrokeThickness="1.5" 
+                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="Border" Property="Background" Value="#15FFFFFF"/>
+                                        <Setter TargetName="Border" Property="BorderBrush" Value="#2FFFFFFF"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </ComboBox.Resources>
+
+                        <ComboBox.Template>
+                            <ControlTemplate TargetType="ComboBox">
+                                <Grid>
+                                    <ToggleButton Name="ToggleButton" 
+                              Template="{StaticResource ComboBoxToggleButton}" 
+                              Focusable="false"
+                              IsChecked="{Binding Path=IsDropDownOpen,Mode=TwoWay,RelativeSource={RelativeSource TemplatedParent}}"
+                              ClickMode="Press"
+                              HorizontalAlignment="Stretch"
+                              VerticalAlignment="Stretch"
+                              Background="#0AFFFFFF" 
+                              BorderBrush="#1FFFFFFF"/>
+
+                                    <ContentPresenter Name="ContentSite" 
+                                  IsHitTestVisible="False" 
+                                  Content="{TemplateBinding SelectionBoxItem}"
+                                  ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                  ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                  Margin="15,0,30,0"
+                                  VerticalAlignment="Center"
+                                  HorizontalAlignment="Left" />
+
+                                    <Popup Name="Popup"
+                       Placement="Bottom"
+                       IsOpen="{TemplateBinding IsDropDownOpen}"
+                       AllowsTransparency="True" 
+                       Focusable="False"
+                       PopupAnimation="Slide">
+
+                                        <Grid Name="DropDown" MinWidth="{TemplateBinding ActualWidth}" MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                                            <Border x:Name="DropDownBorder" 
+                                Background="#99101010" 
+                                BorderThickness="1" 
+                                BorderBrush="#444" 
+                                CornerRadius="8" 
+                                Margin="0,5,0,0">
+                                                <ScrollViewer Margin="4" SnapsToDevicePixels="True">
+                                                    <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained" />
+                                                </ScrollViewer>
+                                            </Border>
+                                        </Grid>
+                                    </Popup>
+                                </Grid>
+                            </ControlTemplate>
+                        </ComboBox.Template>
+
                         <ComboBoxItem Content="Name (A-Z)"/>
                         <ComboBoxItem Content="Name (Z-A)"/>
                         <ComboBoxItem Content="Playtime (Highest)"/>
                         <ComboBoxItem Content="Playtime (Lowest)"/>
                     </ComboBox>
 
-                    <Button Grid.Column="2" Content="Filter View" Click="FilterMenu_Click" Height="40" Margin="15,0,0,0" VerticalAlignment="Center" Padding="15,0" Background="#333" Foreground="White" BorderThickness="0">
+                    <Button Grid.Column="2" Content="Filter" Click="FilterMenu_Click" Height="40" Width="120" Margin="15,0,0,0" VerticalAlignment="Center" 
+                       Background="#0AFFFFFF" BorderBrush="#1FFFFFFF" BorderThickness="1" Foreground="White" Cursor="Hand">
+
                         <Button.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="Show Hidden Games" IsCheckable="True" Click="Filter_Checked"/>
                                 <MenuItem Header="Show Utilities" IsCheckable="True" Click="Filter_Checked"/>
                             </ContextMenu>
                         </Button.ContextMenu>
+
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="border" 
+                    Background="{TemplateBinding Background}" 
+                    BorderBrush="{TemplateBinding BorderBrush}" 
+                    BorderThickness="1" 
+                    CornerRadius="8">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="border" Property="Background" Value="#15FFFFFF"/>
+                                        <Setter TargetName="border" Property="BorderBrush" Value="#2FFFFFFF"/>
+                                    </Trigger>
+
+                                    <Trigger Property="IsPressed" Value="True">
+                                        <Setter TargetName="border" Property="Background" Value="#08FFFFFF"/>
+                                        <Setter TargetName="border" Property="BorderBrush" Value="#15FFFFFF"/>
+                                        <Setter Property="Foreground" Value="#CCFFFFFF"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
                     </Button>
                 </Grid>
 
-                <ScrollViewer Grid.Row="1" Padding="0,0,0,30">
-                    <ListBox x:Name="GamesList" Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Center">
+                <ScrollViewer Grid.Row="1" Padding="24,0,24,30">
+                    <ListBox x:Name="GamesList" Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch">
                         <ListBox.ItemContainerStyle>
                             <Style TargetType="ListBoxItem">
                                 <Setter Property="Focusable" Value="False"/>
@@ -257,17 +389,19 @@
 
                         <ListBox.ItemsPanel>
                             <ItemsPanelTemplate>
-                                <WrapPanel IsItemsHost="True" HorizontalAlignment="Center" MaxWidth="1600"/>
+                                <UniformGrid Columns="7" VerticalAlignment="Top"/>
                             </ItemsPanelTemplate>
                         </ListBox.ItemsPanel>
 
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <Button Click="Game_Click" Width="150" Height="250" Margin="10" Padding="0" BorderThickness="0" Cursor="Hand" Background="Transparent">
+                                <Button Click="Game_Click" 
+                                        Height="{Binding ActualWidth, RelativeSource={RelativeSource Self}, Converter={StaticResource AspectRatioConverter}, ConverterParameter=1.5}"
+                                        Margin="6" Padding="0" BorderThickness="0" Cursor="Hand" Background="Transparent">
                                     <Button.Template>
                                         <ControlTemplate TargetType="Button">
                                             <Grid>
-                                                <Border x:Name="CardBorder" CornerRadius="12" Background="{StaticResource BgCard}" BorderBrush="Transparent" BorderThickness="0">
+                                                <Border x:Name="CardBorder" CornerRadius="12" Background="{StaticResource BgCard}" BorderBrush="Transparent" BorderThickness="0" SnapsToDevicePixels="True">
                                                     <Border.OpacityMask>
                                                         <VisualBrush>
                                                             <VisualBrush.Visual>
@@ -288,25 +422,24 @@
                                                             </Border.Background>
                                                         </Border>
 
-                                                        <Border x:Name="BoostRing" BorderBrush="{StaticResource ActivityColor}" BorderThickness="4" CornerRadius="12" Margin="0"
-                                                                Visibility="{Binding IsBoosting, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                                                Panel.ZIndex="10"/>
+                                                        <Border x:Name="BoostRing" BorderBrush="{StaticResource ActivityColor}" BorderThickness="2" CornerRadius="12" Margin="0"
+                                                                Visibility="{Binding IsBoosting, Converter={StaticResource BooleanToVisibilityConverter}}" Panel.ZIndex="10"/>
 
                                                         <Grid VerticalAlignment="Top" Margin="8" Panel.ZIndex="11">
-                                                            <StackPanel Orientation="Horizontal">
-                                                                <Border Background="#D9000000" CornerRadius="6" Padding="6,3" 
-                                                                        Visibility="{Binding PlaytimeMinutes, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                                                    <TextBlock Text="{Binding PlaytimeCompactString}" Foreground="White" FontSize="10" FontWeight="Bold"/>
-                                                                </Border>
-                                                                <Border Background="{StaticResource ActivityColor}" CornerRadius="6" Padding="6,3" Margin="4,0,0,0"
-                                                                        Visibility="{Binding IsBoosting, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                                                    <TextBlock Text="ACTIVE" Foreground="White" FontSize="9" FontWeight="Bold"/>
-                                                                </Border>
-                                                            </StackPanel>
-                                                            <Border HorizontalAlignment="Right" Background="#D9000000" CornerRadius="6" Padding="4" Visibility="{Binding IsHidden, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                                                <ui:SymbolIcon Symbol="EyeOff24" Foreground="#ccc" FontSize="12"/>
+                                                            <Border HorizontalAlignment="Left" Background="{StaticResource ActivityColor}" CornerRadius="2" Padding="6,3"
+                                                                    Visibility="{Binding IsBoosting, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                                <TextBlock Text="ACTIVE" Foreground="White" FontSize="9" FontWeight="Bold"/>
+                                                            </Border>
+
+                                                            <Border HorizontalAlignment="Right" Background="#D9000000" CornerRadius="2" Padding="6,3" 
+                                                                    Visibility="{Binding PlaytimeMinutes, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                                <TextBlock Text="{Binding PlaytimeCompactString}" Foreground="White" FontSize="10" FontWeight="Bold"/>
                                                             </Border>
                                                         </Grid>
+
+                                                        <Border VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,30,8,0" Background="#D9000000" CornerRadius="2" Padding="4" Visibility="{Binding IsHidden, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                            <ui:SymbolIcon Symbol="EyeOff24" Foreground="#ccc" FontSize="12"/>
+                                                        </Border>
 
                                                         <TextBlock Text="{Binding Name}" Foreground="White" FontSize="13" FontWeight="SemiBold"
                                                                    VerticalAlignment="Bottom" HorizontalAlignment="Left" 
@@ -344,10 +477,9 @@
                         <TextBlock Text="Settings" FontSize="32" FontWeight="Bold" Margin="0,0,0,10" Foreground="White"/>
                         <TextBlock Text="Manage connection and preferences." Foreground="{StaticResource TextMuted}" Margin="0,0,0,40" FontSize="16"/>
 
-                        <Border Background="{StaticResource BgCard}" CornerRadius="12" Padding="25" Margin="0,0,0,20">
+                        <Border Background="{StaticResource BgCard}" CornerRadius="12" Padding="25" Margin="0,0,0,20" BorderBrush="#20FFFFFF" BorderThickness="1">
                             <StackPanel>
                                 <TextBlock Text="Steam Connection" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,20"/>
-
                                 <Grid Margin="0,0,0,15">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
@@ -358,8 +490,7 @@
                                         <TextBlock Text="Used to fetch playtime data." Foreground="{StaticResource TextMuted}" FontSize="12"/>
                                     </StackPanel>
                                 </Grid>
-                                <ui:TextBox x:Name="TxtApiKey" PlaceholderText="Paste API Key..." Margin="0,0,0,15"/>
-
+                                <ui:PasswordBox x:Name="PbApiKey" PlaceholderText="Paste API Key" Margin="0,0,0,15"/>
                                 <Grid Margin="0,0,0,15">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
@@ -371,7 +502,6 @@
                                     </StackPanel>
                                 </Grid>
                                 <ui:TextBox x:Name="TxtSteamId" PlaceholderText="e.g. 76561198..." Margin="0,0,0,20"/>
-
                                 <Grid>
                                     <Button Content="Verify &amp; Save" Click="SaveSettings_Click" Style="{StaticResource PrimaryButtonStyle}" HorizontalAlignment="Left" MinWidth="180"/>
                                     <TextBlock x:Name="TxtApiStatus" Text="Not Connected" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{StaticResource TextMuted}"/>
@@ -379,9 +509,20 @@
                             </StackPanel>
                         </Border>
 
-                        <Border Background="{StaticResource BgCard}" CornerRadius="12" Padding="25" Margin="0,0,0,20">
+                        <Border Background="{StaticResource BgCard}" CornerRadius="12" Padding="25" Margin="0,0,0,20" BorderBrush="#20FFFFFF" BorderThickness="1">
                             <StackPanel>
                                 <TextBlock Text="Preferences" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,20"/>
+                                <Grid Margin="0,0,0,15">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="Windows Mica Effect" FontWeight="Medium"/>
+                                        <TextBlock Text="Enable translucent window background." Foreground="{StaticResource TextMuted}" FontSize="12"/>
+                                    </StackPanel>
+                                    <ui:ToggleSwitch x:Name="ChkMica" Grid.Column="1" Click="SavePreferences_Click"/>
+                                </Grid>
                                 <Grid Margin="0,0,0,10">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
@@ -396,15 +537,15 @@
                             </StackPanel>
                         </Border>
 
-                        <Border Background="{StaticResource BgCard}" CornerRadius="12" Padding="25">
+                        <Border Background="{StaticResource BgCard}" CornerRadius="12" Padding="25" BorderBrush="#20FFFFFF" BorderThickness="1">
                             <StackPanel>
                                 <TextBlock Text="About" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,20"/>
                                 <Grid>
                                     <StackPanel>
-                                        <TextBlock Text="Steam Activity Manager v0.3" FontWeight="Bold"/>
+                                        <TextBlock Text="Steam Activity Manager v0.4 Beta" FontWeight="Bold"/>
                                         <TextBlock Text="Created by CreatineGHG" Foreground="{StaticResource TextMuted}" FontSize="12"/>
                                     </StackPanel>
-                                    <Button Content="Check for Updates" Click="GitHubUpdate_Click" Style="{StaticResource SecondaryButtonStyle}" HorizontalAlignment="Right"/>
+                                    <Button Content="Check for Updates" Click="GitHubUpdate_Click" Style="{StaticResource SecondaryButtonStyle}" HorizontalAlignment="Right" Width="180"/>
                                 </Grid>
                             </StackPanel>
                         </Border>
@@ -413,22 +554,21 @@
             </Grid>
         </Grid>
 
-        <Grid x:Name="OptionsOverlay" Grid.ColumnSpan="2" Visibility="Collapsed" Background="#bb000000" Panel.ZIndex="1000">
-            <Border MouseDown="CloseOverlay_Click" Background="Transparent"/>
-            <Border Width="500" Background="#202020" CornerRadius="12" Effect="{StaticResource ShadowEffect}" BorderBrush="#333" BorderThickness="1" VerticalAlignment="Center">
+        <Grid x:Name="OptionsOverlay" Grid.ColumnSpan="2" Visibility="Collapsed" Panel.ZIndex="1000">
+            <Border Background="#88000000" MouseDown="CloseOverlay_Click"/>
+            <Border Width="500" Background="{StaticResource BgOverlay}" CornerRadius="16" Effect="{StaticResource ShadowEffect}" BorderBrush="#333" BorderThickness="1" VerticalAlignment="Center">
                 <Grid Margin="30">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
-
-                    <Grid>
+                    <Grid Grid.Row="0" Margin="0,0,0,20">
                         <StackPanel>
-                            <Viewbox Height="28" HorizontalAlignment="Left" StretchDirection="DownOnly">
-                                <TextBlock x:Name="SelectedGameTitle" Text="Game Title" FontSize="24" FontWeight="Bold" Foreground="White"/>
+                            <Viewbox Height="32" HorizontalAlignment="Left" StretchDirection="DownOnly">
+                                <TextBlock x:Name="SelectedGameTitle" Text="Game Title" FontSize="28" FontWeight="Bold" Foreground="White"/>
                             </Viewbox>
-
                             <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                                 <Border Background="#333" CornerRadius="4" Padding="8,2" Margin="0,0,10,0">
                                     <TextBlock x:Name="SelectedGameTime" Text="1050 hours" Foreground="{StaticResource AccentColor}" FontWeight="SemiBold" FontSize="12"/>
@@ -440,24 +580,48 @@
                             <ui:SymbolIcon Symbol="Dismiss24" FontSize="18" Foreground="White"/>
                         </Button>
                     </Grid>
-
-                    <StackPanel Grid.Row="1" Margin="0,25">
-
-                        <Button Click="PlayGame_Click" HorizontalAlignment="Stretch" Height="45" Margin="0,0,0,10" Background="#2d8f38" Foreground="White" BorderThickness="0" Cursor="Hand" Style="{StaticResource PrimaryButtonStyle}">
-                            <StackPanel Orientation="Horizontal">
-                                <ui:SymbolIcon Symbol="Play24" Margin="0,0,10,0"/>
-                                <TextBlock Text="PLAY" FontWeight="Bold" FontSize="14"/>
-                            </StackPanel>
-                        </Button>
-
-                        <Button x:Name="BtnBoost" Click="BoostGame_Click" HorizontalAlignment="Stretch" Height="45" Margin="0,0,0,25" Background="{StaticResource AccentColor}" Foreground="Black" BorderThickness="0" Cursor="Hand" Style="{StaticResource PrimaryButtonStyle}">
-                            <StackPanel Orientation="Horizontal">
-                                <ui:SymbolIcon Symbol="Rocket24" Margin="0,0,10,0"/>
-                                <TextBlock x:Name="TxtBoost" Text="START ACTIVITY" FontWeight="Bold" FontSize="14"/>
-                            </StackPanel>
-                        </Button>
-
-                        <Border Background="#252525" CornerRadius="8" Padding="10" Margin="0,0,0,10">
+                    <Button Grid.Row="1" Click="OpenAchievements_Click" Margin="0,0,0,20" Cursor="Hand" Height="Auto" Background="Transparent" BorderThickness="0" Padding="0">
+                        <Border Background="#20FFFFFF" CornerRadius="8" Padding="15" BorderBrush="#30FFFFFF" BorderThickness="1">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal">
+                                        <ui:SymbolIcon Symbol="Trophy24" FontSize="16" Foreground="#ffd700" Margin="0,0,8,0"/>
+                                        <TextBlock Text="Achievements" Foreground="#ddd" FontSize="12" FontWeight="SemiBold"/>
+                                    </StackPanel>
+                                    <TextBlock x:Name="TxtAchievements" Text="50 / 100" FontSize="14" Foreground="White" Margin="24,2,0,0" FontWeight="Bold"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal">
+                                    <ProgressBar x:Name="ProgAchievements" Width="100" Height="6" Maximum="100" Value="50" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <ui:SymbolIcon Symbol="ChevronRight24" Foreground="#666"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </Button>
+                    <StackPanel Grid.Row="2" Margin="0,0,0,20">
+                        <Grid Margin="0,0,0,15">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="15"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Button Click="PlayGame_Click" Height="50" Background="#2d8f38" Foreground="White" BorderThickness="0" Cursor="Hand" Style="{StaticResource PrimaryButtonStyle}">
+                                <StackPanel Orientation="Horizontal">
+                                    <ui:SymbolIcon Symbol="Play24" Margin="0,0,10,0"/>
+                                    <TextBlock Text="PLAY" FontWeight="Bold" FontSize="14"/>
+                                </StackPanel>
+                            </Button>
+                            <Button x:Name="BtnBoost" Click="BoostGame_Click" Grid.Column="2" Height="50" Background="{StaticResource AccentColor}" Foreground="Black" BorderThickness="0" Cursor="Hand" Style="{StaticResource PrimaryButtonStyle}">
+                                <StackPanel Orientation="Horizontal">
+                                    <ui:SymbolIcon Symbol="Rocket24" Margin="0,0,10,0"/>
+                                    <TextBlock x:Name="TxtBoost" Text="BOOST" FontWeight="Bold" FontSize="14"/>
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+                        <Border Background="#20FFFFFF" CornerRadius="8" Padding="10" Margin="0,0,0,10">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
@@ -467,10 +631,9 @@
                                     <TextBlock Text="Executable Path" FontSize="11" Foreground="#888" Margin="0,0,0,2"/>
                                     <TextBlock x:Name="TxtGamePath" Text="C:\Program Files\..." FontSize="12" Foreground="#ddd" TextTrimming="CharacterEllipsis"/>
                                 </StackPanel>
-                                <Button Content="Browse" Click="BrowseExe_Click" Grid.Column="1" Height="28" FontSize="11" Padding="10,0" Style="{StaticResource SecondaryButtonStyle}"/>
+                                <Button Content="Browse" Click="BrowseExe_Click" Grid.Column="1" Height="28" Width="80" FontSize="11" Style="{StaticResource SecondaryButtonStyle}"/>
                             </Grid>
                         </Border>
-
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
@@ -482,8 +645,7 @@
                             <Button Content="Repair" Click="RepairGame_Click" Grid.Column="2" Background="#500" BorderBrush="#800" Style="{StaticResource SecondaryButtonStyle}" Margin="5,0,0,0" FontSize="12"/>
                         </Grid>
                     </StackPanel>
-
-                    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center">
+                    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center">
                         <CheckBox x:Name="ChkHideGame" Content="Hide from Library" Checked="GameSetting_Changed" Unchecked="GameSetting_Changed" Margin="0,0,20,0" Foreground="White" FontSize="12"/>
                         <CheckBox x:Name="ChkIsUtility" Content="Mark as Utility" Checked="GameSetting_Changed" Unchecked="GameSetting_Changed" Foreground="White" FontSize="12"/>
                     </StackPanel>
@@ -491,20 +653,132 @@
             </Border>
         </Grid>
 
-        <Grid x:Name="DebugOverlay" Grid.ColumnSpan="2" Visibility="Collapsed" Background="#aa000000" Panel.ZIndex="2000">
-            <Border MouseDown="CloseOverlay_Click" Background="Transparent"/>
-            <Border Width="380" Height="280" Background="#111" CornerRadius="12" BorderBrush="#FFA500" BorderThickness="1">
+        <Grid x:Name="AchievementsOverlay" Grid.ColumnSpan="2" Visibility="Collapsed" Panel.ZIndex="1005">
+            <Border Background="#aa000000" MouseDown="CloseAchievements_Click"/>
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="1*"/>
+                    <RowDefinition Height="8*"/>
+                    <RowDefinition Height="1*"/>
+                </Grid.RowDefinitions>
+                <Border Grid.Row="1" Width="550" Background="{StaticResource BgOverlay}" CornerRadius="16" BorderBrush="#444" BorderThickness="1" VerticalAlignment="Center">
+                    <Grid Margin="25">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <Grid Grid.Row="0" Margin="0,0,0,20">
+                            <StackPanel>
+                                <TextBlock x:Name="TxtAchieveTitle" Text="Game Achievements" FontSize="22" FontWeight="Bold" Foreground="White"/>
+                                <TextBlock x:Name="TxtAchieveSubtitle" Text="Loading..." FontSize="14" Foreground="#999"/>
+                            </StackPanel>
+                            <Button Click="CloseAchievements_Click" HorizontalAlignment="Right" VerticalAlignment="Top" Background="Transparent" BorderThickness="0">
+                                <ui:SymbolIcon Symbol="Dismiss24" FontSize="18" Foreground="White"/>
+                            </Button>
+                        </Grid>
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl x:Name="ListAchievements" HorizontalContentAlignment="Stretch">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Button Click="Achievement_Click" Margin="0,0,0,10" Padding="0" Background="Transparent" BorderThickness="0" Cursor="Hand" HorizontalContentAlignment="Stretch" HorizontalAlignment="Stretch">
+                                            <Button.Template>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border x:Name="AchBorder" Background="#20FFFFFF" CornerRadius="8" Padding="12" Height="80">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="50"/>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="30"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <Image Source="{Binding IconUrl}" Width="48" Height="48" VerticalAlignment="Center"/>
+                                                            <StackPanel Grid.Column="1" Margin="15,0,0,0" VerticalAlignment="Center">
+                                                                <TextBlock Text="{Binding DisplayName}" Foreground="White" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis"/>
+                                                                <TextBlock Text="{Binding Description}" Foreground="#aaa" FontSize="12" TextTrimming="CharacterEllipsis" MaxHeight="36" TextWrapping="Wrap"/>
+                                                            </StackPanel>
+
+                                                            <ui:SymbolIcon Grid.Column="2" Symbol="CheckmarkCircle24" Foreground="{StaticResource ActivityColor}" 
+                                                                           Visibility="{Binding Achieved, Converter={StaticResource BooleanToVisibilityConverter}}" FontSize="20"/>
+                                                        </Grid>
+                                                        <VisualStateManager.VisualStateGroups>
+                                                            <VisualStateGroup x:Name="CommonStates">
+                                                                <VisualState x:Name="Normal"/>
+                                                                <VisualState x:Name="MouseOver">
+                                                                    <Storyboard>
+                                                                        <ColorAnimation Storyboard.TargetName="AchBorder" Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)" To="#30FFFFFF" Duration="0:0:0.1"/>
+                                                                    </Storyboard>
+                                                                </VisualState>
+                                                            </VisualStateGroup>
+                                                        </VisualStateManager.VisualStateGroups>
+                                                    </Border>
+                                                </ControlTemplate>
+                                            </Button.Template>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <Grid x:Name="NoNewGamesOverlay" Grid.ColumnSpan="2" Visibility="Collapsed" Panel.ZIndex="1002">
+            <Border Background="#aa000000" MouseDown="CloseOverlay_Click"/>
+            <Border Width="400" Height="250" Background="{StaticResource BgOverlay}" CornerRadius="20" BorderBrush="#333" BorderThickness="1">
+                <Grid Margin="30">
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                        <ui:SymbolIcon Symbol="CheckmarkCircle24" FontSize="48" Foreground="{StaticResource ActivityColor}" Margin="0,0,0,20"/>
+                        <TextBlock Text="Library Up to Date" FontSize="20" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                        <TextBlock Text="No new games were found." Foreground="#999" HorizontalAlignment="Center"/>
+                        <Button Content="Close" Click="CloseOverlay_Click" Margin="0,30,0,0" Style="{StaticResource PrimaryButtonStyle}" Width="120"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <Grid x:Name="NewGamesOverlay" Grid.ColumnSpan="2" Visibility="Collapsed" Panel.ZIndex="1002">
+            <Border Background="#aa000000" MouseDown="CloseOverlay_Click"/>
+            <Border Width="600" Height="500" Background="{StaticResource BgOverlay}" CornerRadius="20" BorderBrush="{StaticResource ActivityColor}" BorderThickness="1">
+                <Grid Margin="20">
+                    <TextBlock Text="New Games Found" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,10,0,0"/>
+                    <ListBox x:Name="NewGamesList" Margin="0,50,0,60" Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Stretch">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="#333" CornerRadius="8" Padding="10" Margin="0,0,0,8">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="60"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Image Source="{Binding ImageUrl}" Stretch="UniformToFill" Width="50" Height="75"/>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="15,0,0,0">
+                                            <TextBlock Text="{Binding Name}" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
+                                            <TextBlock Text="{Binding AppId}" FontSize="12" Foreground="#888"/>
+                                        </StackPanel>
+                                        <ui:SymbolIcon Grid.Column="2" Symbol="Checkmark24" Foreground="{StaticResource ActivityColor}" FontSize="24" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <Button Content="Nice!" Click="CloseOverlay_Click" VerticalAlignment="Bottom" HorizontalAlignment="Center" Width="200" Style="{StaticResource PrimaryButtonStyle}"/>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <Grid x:Name="DebugOverlay" Grid.ColumnSpan="2" Visibility="Collapsed" Panel.ZIndex="2000">
+            <Border Background="#aa000000" MouseDown="CloseOverlay_Click"/>
+            <Border Width="380" Height="280" Background="{StaticResource BgOverlay}" CornerRadius="12" BorderBrush="#FFA500" BorderThickness="1">
                 <Grid Margin="20">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
-
                     <StackPanel>
                         <TextBlock Text="DEVELOPER TOOLS" FontSize="14" FontWeight="Bold" Foreground="#FFA500"/>
                         <Separator Background="#333" Margin="0,10,0,15"/>
                     </StackPanel>
-
                     <StackPanel Grid.Row="1">
                         <Button Content="Simulate Activity (UI Only)" Click="DebugFakeBoost_Click" Margin="0,0,0,8" Style="{StaticResource SecondaryButtonStyle}" HorizontalContentAlignment="Left"/>
                         <Button Content="Force Refresh All States" Click="RefreshLibrary_Click" Margin="0,0,0,8" Style="{StaticResource SecondaryButtonStyle}" HorizontalContentAlignment="Left"/>
@@ -517,41 +791,26 @@
             </Border>
         </Grid>
 
-        <Grid x:Name="TutorialOverlay" Grid.ColumnSpan="2" Visibility="Collapsed" Background="#aa000000" Panel.ZIndex="1001">
-            <Border MouseDown="CloseOverlay_Click" Background="Transparent"/>
-            <Border Width="650" Height="500" Background="{StaticResource BgPanel}" CornerRadius="20" Effect="{StaticResource ShadowEffect}" BorderBrush="#333" BorderThickness="1">
+        <Grid x:Name="TutorialOverlay" Grid.ColumnSpan="2" Visibility="Collapsed" Panel.ZIndex="1001">
+            <Border Background="#aa000000" MouseDown="CloseOverlay_Click"/>
+            <Border Width="650" Height="500" Background="{StaticResource BgOverlay}" CornerRadius="20" Effect="{StaticResource ShadowEffect}" BorderBrush="#333" BorderThickness="1">
                 <Grid Margin="40">
                     <Button Click="CloseOverlay_Click" HorizontalAlignment="Right" VerticalAlignment="Top" Background="Transparent" BorderThickness="0">
                         <ui:SymbolIcon Symbol="Dismiss24" Foreground="White"/>
                     </Button>
                     <StackPanel>
                         <TextBlock Text="Quick Guide" FontSize="28" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" Margin="0,0,0,30"/>
-
                         <TextBlock Text="1. Scan Library" FontWeight="Bold" FontSize="18" Foreground="{StaticResource AccentColor}"/>
                         <TextBlock Text="Click 'Refresh Games' to find installed games." Margin="0,0,0,20" Foreground="#ccc"/>
-
                         <TextBlock Text="2. Track Activity" FontWeight="Bold" FontSize="18" Foreground="{StaticResource AccentColor}"/>
                         <TextBlock Text="Click 'Start Activity' to log hours without playing." Margin="0,0,0,20" Foreground="#ccc"/>
-
                         <TextBlock Text="Need more help?" FontWeight="Bold" FontSize="18" Foreground="{StaticResource AccentColor}"/>
-                        <Button Content="Visit GitHub Repository" Click="OpenGitHub_Click" Margin="0,5,0,20" 
-                                Foreground="#4cc2ff" Background="Transparent" BorderThickness="0" Cursor="Hand" HorizontalAlignment="Left" Padding="0"/>
-
+                        <Button Content="Visit GitHub Repository" Click="OpenGitHub_Click" Margin="0,5,0,20" Foreground="#4cc2ff" Background="Transparent" BorderThickness="0" Cursor="Hand" HorizontalAlignment="Left" Padding="0"/>
                         <Button Content="Got it" Click="CloseOverlay_Click" Style="{StaticResource PrimaryButtonStyle}" Width="150" Margin="0,20,0,0"/>
                     </StackPanel>
                 </Grid>
             </Border>
         </Grid>
 
-        <Grid x:Name="NewGamesOverlay" Grid.ColumnSpan="2" Visibility="Collapsed" Background="#aa000000" Panel.ZIndex="1002">
-            <Border MouseDown="CloseOverlay_Click" Background="Transparent"/>
-            <Border Width="600" Height="400" Background="{StaticResource BgPanel}" CornerRadius="20" BorderBrush="{StaticResource ActivityColor}" BorderThickness="1">
-                <Grid Margin="20">
-                    <TextBlock Text="New Games Found" FontSize="20" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,20"/>
-                    <ListBox x:Name="NewGamesList" Margin="0,30,0,50" Background="Transparent" BorderThickness="0"/>
-                    <Button Content="Close" Click="CloseOverlay_Click" VerticalAlignment="Bottom" HorizontalAlignment="Center" Style="{StaticResource PrimaryButtonStyle}"/>
-                </Grid>
-            </Border>
-        </Grid>
     </Grid>
 </ui:FluentWindow>

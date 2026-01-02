@@ -3,14 +3,18 @@ using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
 using System.Net.NetworkInformation;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Wpf.Ui.Controls;
 
@@ -57,13 +61,24 @@ namespace WpfApp2
             }
 
             LoadSavedGames();
+            UpdateBackdrop();
         }
 
         private async void LoadSavedGames()
         {
             _allGames = await _steamService.LoadGamesFromDiskAsync();
-            foreach (var game in _allGames) _executor.SyncBoostingState(game);
             ApplyFilter();
+
+            _ = Task.Run(async () =>
+            {
+                _executor.RestoreIntegrity(_allGames);
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    foreach (var game in _allGames) _executor.SyncBoostingState(game);
+                });
+                await ScanLibraryAsync(silent: true);
+            });
+
             await CheckApiStatusSilent();
         }
 
@@ -77,24 +92,82 @@ namespace WpfApp2
             string currentStatus = TxtApiStatus.Text;
             if (currentStatus.Contains("Failed") || currentStatus.Contains("Offline") || currentStatus.Contains("Not Checked"))
             {
-                if (!string.IsNullOrEmpty(TxtApiKey.Text)) await CheckApiStatusSilent();
+                if (!string.IsNullOrEmpty(_settingsService.CurrentSettings.SteamApiKey)) await CheckApiStatusSilent();
             }
         }
 
-        // --- NAVIGATION ---
+        private void UpdateBackdrop()
+        {
+            if (_settingsService.CurrentSettings.EnableMica)
+            {
+                this.WindowBackdropType = WindowBackdropType.Mica;
+                this.Background = new SolidColorBrush(Colors.Transparent);
+            }
+            else
+            {
+                this.WindowBackdropType = WindowBackdropType.None;
+                this.Background = new SolidColorBrush(Color.FromRgb(18, 18, 18));
+            }
+        }
+
+        private void ToggleBlur(bool isVisible)
+        {
+            if (!_settingsService.CurrentSettings.EnableMica)
+            {
+                MainContentGrid.Effect = null;
+                return;
+            }
+
+            if (isVisible)
+            {
+                MainContentGrid.Effect = new BlurEffect { Radius = 15, KernelType = KernelType.Gaussian };
+            }
+            else
+            {
+                MainContentGrid.Effect = null;
+            }
+        }
+
         private void NavToLibrary_Click(object sender, RoutedEventArgs e) { LibraryView.Visibility = Visibility.Visible; SettingsView.Visibility = Visibility.Collapsed; }
+
         private async void NavToSettings_Click(object sender, RoutedEventArgs e)
         {
             LibraryView.Visibility = Visibility.Collapsed;
             SettingsView.Visibility = Visibility.Visible;
-            TxtApiKey.Text = _settingsService.CurrentSettings.SteamApiKey;
+
+            PbApiKey.Password = _settingsService.CurrentSettings.SteamApiKey;
             TxtSteamId.Text = _settingsService.CurrentSettings.SteamId64;
+
             ChkDebugMode.IsChecked = BtnDebugMenu.Visibility == Visibility.Visible;
-            if (!string.IsNullOrEmpty(TxtApiKey.Text)) await CheckApiStatusSilent();
+            ChkMica.IsChecked = _settingsService.CurrentSettings.EnableMica;
+
+            if (!string.IsNullOrEmpty(PbApiKey.Password)) await CheckApiStatusSilent();
         }
+
         private void ToggleSidebar_Click(object sender, RoutedEventArgs e) => SidebarGrid.Width = SidebarGrid.Width == 60 ? 200 : 60;
-        private void OpenTutorial_Click(object sender, RoutedEventArgs e) => TutorialOverlay.Visibility = Visibility.Visible;
-        private void CloseOverlay_Click(object sender, RoutedEventArgs e) { OptionsOverlay.Visibility = Visibility.Collapsed; TutorialOverlay.Visibility = Visibility.Collapsed; NewGamesOverlay.Visibility = Visibility.Collapsed; DebugOverlay.Visibility = Visibility.Collapsed; }
+        private void OpenTutorial_Click(object sender, RoutedEventArgs e)
+        {
+            TutorialOverlay.Visibility = Visibility.Visible;
+            ToggleBlur(true);
+        }
+
+        private void CloseOverlay_Click(object sender, RoutedEventArgs e)
+        {
+            OptionsOverlay.Visibility = Visibility.Collapsed;
+            AchievementsOverlay.Visibility = Visibility.Collapsed;
+            TutorialOverlay.Visibility = Visibility.Collapsed;
+            NewGamesOverlay.Visibility = Visibility.Collapsed;
+            DebugOverlay.Visibility = Visibility.Collapsed;
+            NoNewGamesOverlay.Visibility = Visibility.Collapsed;
+
+            ToggleBlur(false);
+        }
+
+        private void CloseAchievements_Click(object sender, RoutedEventArgs e)
+        {
+            AchievementsOverlay.Visibility = Visibility.Collapsed;
+            if (e is MouseButtonEventArgs mouseArgs) mouseArgs.Handled = true;
+        }
 
         private void OpenProfile_Click(object sender, RoutedEventArgs e)
         {
@@ -102,7 +175,6 @@ namespace WpfApp2
                 Process.Start(new ProcessStartInfo($"https://steamcommunity.com/profiles/{_settingsService.CurrentSettings.SteamId64}") { UseShellExecute = true });
         }
 
-        // --- FILTERING ---
         private void Filter_TextChanged(object sender, TextChangedEventArgs e) => ApplyFilter();
         private void Sort_SelectionChanged(object sender, SelectionChangedEventArgs e) => ApplyFilter();
         private void FilterMenu_Click(object sender, RoutedEventArgs e) { if (sender is Button btn && btn.ContextMenu != null) { btn.ContextMenu.PlacementTarget = btn; btn.ContextMenu.IsOpen = true; } }
@@ -133,20 +205,65 @@ namespace WpfApp2
             GamesList.ItemsSource = filtered.ToList();
         }
 
-        // --- GAME ACTIONS ---
         private void Game_Click(object sender, RoutedEventArgs e)
         {
             if (sender is Button btn && btn.DataContext is SteamGame game)
             {
                 _selectedGame = game;
+
                 SelectedGameTitle.Text = game.Name;
                 SelectedGameTime.Text = game.PlaytimeFullString;
                 SelectedGameId.Text = $"AppID: {game.AppId}";
                 ChkHideGame.IsChecked = game.IsHidden;
                 ChkIsUtility.IsChecked = game.IsUtility;
                 TxtGamePath.Text = !string.IsNullOrEmpty(game.ExecutablePath) ? game.ExecutablePath : "Auto-Detected";
+
+                TxtAchievements.Text = game.AchievementString;
+                ProgAchievements.Value = game.AchievementPercentage;
+
                 UpdateBoostButtonState();
                 OptionsOverlay.Visibility = Visibility.Visible;
+                ToggleBlur(true);
+            }
+        }
+
+        private async void OpenAchievements_Click(object sender, RoutedEventArgs e)
+        {
+            if (_selectedGame == null) return;
+
+            AchievementsOverlay.Visibility = Visibility.Visible;
+            TxtAchieveTitle.Text = _selectedGame.Name;
+            TxtAchieveSubtitle.Text = "Loading achievements...";
+            ListAchievements.ItemsSource = null;
+
+            string key = _settingsService.CurrentSettings.SteamApiKey;
+            string id = _settingsService.CurrentSettings.SteamId64;
+
+            if (!string.IsNullOrEmpty(key) && !string.IsNullOrEmpty(id))
+            {
+                var details = await _steamService.GetDetailedAchievements(key, id, _selectedGame.AppId);
+
+                if (details.Count > 0)
+                {
+                    ListAchievements.ItemsSource = details;
+                    TxtAchieveSubtitle.Text = $"{details.Count(x => x.Achieved)} / {details.Count} Unlocked";
+                }
+                else
+                {
+                    TxtAchieveSubtitle.Text = "No achievements found or Profile Private.";
+                }
+            }
+            else
+            {
+                TxtAchieveSubtitle.Text = "Please set API Key & Steam ID in settings.";
+            }
+        }
+
+        private void Achievement_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.DataContext is SteamAchievement ach)
+            {
+                Process.Start(new ProcessStartInfo($"https://steamcommunity.com/stats/{_selectedGame.AppId}/achievements") { UseShellExecute = true });
             }
         }
 
@@ -162,6 +279,13 @@ namespace WpfApp2
         private void BoostGame_Click(object sender, RoutedEventArgs e)
         {
             if (_selectedGame == null) return;
+
+            if (!_steamService.IsSteamRunning())
+            {
+                MessageBox.Show("Steam is not running! Please start Steam before boosting to ensure files are handled safely.", "Safety Check", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
             if (_selectedGame.IsBoosting) _executor.StopBoosting(_selectedGame);
             else _executor.StartBoosting(_selectedGame);
             UpdateBoostButtonState();
@@ -215,7 +339,7 @@ namespace WpfApp2
             if (FORCE_DEBUG_OFF) return;
             BtnDebugMenu.Visibility = ChkDebugMode.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
         }
-        private void OpenDebug_Click(object sender, RoutedEventArgs e) => DebugOverlay.Visibility = Visibility.Visible;
+        private void OpenDebug_Click(object sender, RoutedEventArgs e) { DebugOverlay.Visibility = Visibility.Visible; ToggleBlur(true); }
 
         private void DebugFakeBoost_Click(object sender, RoutedEventArgs e)
         {
@@ -231,15 +355,12 @@ namespace WpfApp2
         {
             if (MessageBox.Show("Reset ALL game files?", "Emergency Reset", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
             {
-                foreach (var g in _allGames) _executor.StopBoosting(g);
+                _executor.RestoreIntegrity(_allGames);
                 MessageBox.Show("Reset complete.");
             }
         }
 
-        private void DebugOpenConfig_Click(object sender, RoutedEventArgs e)
-        {
-            Process.Start("explorer.exe", Environment.CurrentDirectory);
-        }
+        private void DebugOpenConfig_Click(object sender, RoutedEventArgs e) => Process.Start("explorer.exe", Environment.CurrentDirectory);
 
         private void DebugRestart_Click(object sender, RoutedEventArgs e)
         {
@@ -247,12 +368,15 @@ namespace WpfApp2
             Application.Current.Shutdown();
         }
 
-        // --- SYSTEM ---
-        private async void RefreshLibrary_Click(object sender, RoutedEventArgs e)
+        private async void RefreshLibrary_Click(object sender, RoutedEventArgs e) => await ScanLibraryAsync(silent: false);
+
+        private async Task ScanLibraryAsync(bool silent)
         {
-            Mouse.OverrideCursor = Cursors.Wait;
+            if (!silent) Mouse.OverrideCursor = Cursors.Wait;
+
             var oldGamesDict = _allGames.ToDictionary(g => g.AppId);
             var newScan = await _steamService.GetInstalledGamesAsync();
+
             foreach (var newGame in newScan)
             {
                 if (oldGamesDict.TryGetValue(newGame.AppId, out var oldGame))
@@ -261,31 +385,70 @@ namespace WpfApp2
                     newGame.IsUtility = oldGame.IsUtility;
                     newGame.PlaytimeMinutes = Math.Max(newGame.PlaytimeMinutes, oldGame.PlaytimeMinutes);
                     newGame.ExecutablePath = oldGame.ExecutablePath;
+                    newGame.AchievementsEarned = oldGame.AchievementsEarned;
+                    newGame.AchievementsTotal = oldGame.AchievementsTotal;
                 }
             }
+
             string key = _settingsService.CurrentSettings.SteamApiKey;
             string id = _settingsService.CurrentSettings.SteamId64;
-            if (!string.IsNullOrEmpty(key) && NetworkInterface.GetIsNetworkAvailable()) await _steamService.UpdateHoursFromApi(key, id, newScan);
+            if (!string.IsNullOrEmpty(key) && NetworkInterface.GetIsNetworkAvailable())
+            {
+                var tasks = new List<Task>
+                {
+                    _steamService.UpdateHoursFromApi(key, id, newScan),
+                    _steamService.UpdateAllAchievementsCount(key, id, newScan)
+                };
+                await Task.WhenAll(tasks);
+            }
+
             var newlyAdded = newScan.Where(g => !oldGamesDict.ContainsKey(g.AppId)).ToList();
-            if (newlyAdded.Any()) { NewGamesList.ItemsSource = newlyAdded; NewGamesOverlay.Visibility = Visibility.Visible; }
             _allGames = newScan;
             await _steamService.SaveGamesToDiskAsync(_allGames);
-            ApplyFilter();
-            Mouse.OverrideCursor = null;
+
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                ApplyFilter();
+                if (!silent) Mouse.OverrideCursor = null;
+
+                if (newlyAdded.Any())
+                {
+                    NewGamesList.ItemsSource = newlyAdded;
+                    NewGamesOverlay.Visibility = Visibility.Visible;
+                    ToggleBlur(true);
+                }
+                else if (!silent)
+                {
+                    NoNewGamesOverlay.Visibility = Visibility.Visible;
+                    ToggleBlur(true);
+                }
+            });
         }
 
         private async void SaveSettings_Click(object sender, RoutedEventArgs e)
         {
-            _settingsService.CurrentSettings.SteamApiKey = TxtApiKey.Text;
+            _settingsService.CurrentSettings.SteamApiKey = PbApiKey.Password;
             _settingsService.CurrentSettings.SteamId64 = TxtSteamId.Text;
             _settingsService.SaveSettings();
             await CheckApiStatusSilent();
         }
 
+        private void SavePreferences_Click(object sender, RoutedEventArgs e)
+        {
+            _settingsService.CurrentSettings.EnableMica = ChkMica.IsChecked == true;
+            _settingsService.SaveSettings();
+            UpdateBackdrop();
+        }
+
         private async Task CheckApiStatusSilent()
         {
+            string key = _settingsService.CurrentSettings.SteamApiKey;
+            string id = _settingsService.CurrentSettings.SteamId64;
+
+            if (string.IsNullOrEmpty(key)) return;
+
             if (!NetworkInterface.GetIsNetworkAvailable()) { UpdateApiStatusUI(false, "Offline (Retrying...)"); return; }
-            bool isValid = await _steamService.CheckApiCredentials(TxtApiKey.Text, TxtSteamId.Text);
+            bool isValid = await _steamService.CheckApiCredentials(key, id);
             UpdateApiStatusUI(isValid, isValid ? "Connected" : "Invalid Key/ID");
         }
 
@@ -304,5 +467,23 @@ namespace WpfApp2
 
         private void GitHubUpdate_Click(object sender, RoutedEventArgs e) => Process.Start(new ProcessStartInfo("https://github.com/creatineghg/Steam-Hour-Manager") { UseShellExecute = true });
         private void OpenGitHub_Click(object sender, RoutedEventArgs e) => Process.Start(new ProcessStartInfo("https://github.com/creatineghg/Steam-Hour-Manager") { UseShellExecute = true });
+    }
+
+    // --- CONVERTERS ---
+    public class AspectRatioConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value is double width && double.Parse(parameter?.ToString() ?? "1", CultureInfo.InvariantCulture) is double ratio)
+            {
+                return width * ratio;
+            }
+            return 0;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            throw new NotImplementedException();
+        }
     }
 }

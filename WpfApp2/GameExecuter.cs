@@ -1,5 +1,6 @@
 ﻿#nullable disable
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -15,7 +16,6 @@ namespace WpfApp2
     {
         public void StartBoosting(SteamGame game)
         {
-            // 1. Identify Paths
             string exePath = ResolveExecutablePath(game);
             if (string.IsNullOrEmpty(exePath))
             {
@@ -30,29 +30,22 @@ namespace WpfApp2
 
             try
             {
-                // 2. SAFETY CHECK: If _real.exe already exists, we might be in a bad state.
-                // We shouldn't overwrite our backup with a dummy!
-                if (File.Exists(realPath))
+                // Safety: If _real.exe exists, we assume the swap is already done.
+                if (!File.Exists(realPath))
                 {
-                    // The backup exists, meaning the current 'exePath' is likely the dummy.
-                    // We proceed to launch, assuming files are already swapped.
-                }
-                else
-                {
-                    // Perform the Swap
                     if (File.Exists(exePath))
                     {
-                        File.Move(exePath, realPath); // Rename original to _real.exe
-                        File.Copy(Path.Combine(Environment.SystemDirectory, "cmd.exe"), exePath, true); // Put dummy in place
+                        // Retry policy for file locking issues
+                        SafeMove(exePath, realPath);
+                        File.Copy(Path.Combine(Environment.SystemDirectory, "cmd.exe"), exePath, true);
                     }
                 }
 
-                // 3. Launch via Steam
+                // Launch via Steam
                 Process.Start(new ProcessStartInfo { FileName = $"steam://run/{game.AppId}", UseShellExecute = true });
-
                 game.IsBoosting = true;
 
-                // 4. Watch for the dummy process to close
+                // Watch process
                 string processName = Path.GetFileNameWithoutExtension(exePath);
                 WatchProcess(game, processName);
             }
@@ -65,13 +58,16 @@ namespace WpfApp2
 
         private async void WatchProcess(SteamGame game, string processName, bool isResume = false)
         {
-            if (!isResume) await Task.Delay(8000); // Give Steam time to launch
+            if (!isResume) await Task.Delay(10000); // Give Steam plenty of time to launch
 
             while (game.IsBoosting)
             {
                 await Task.Delay(3000);
 
-                // If the dummy process is gone, we MUST revert files immediately.
+                // If app is closing, break loop
+                if (Application.Current == null) break;
+
+                // If dummy process is gone, revert.
                 var running = Process.GetProcessesByName(processName);
                 if (running.Length == 0)
                 {
@@ -93,19 +89,15 @@ namespace WpfApp2
 
             try
             {
-                // 1. Kill the dummy process if it's still running
+                // Kill dummy process
                 foreach (var p in Process.GetProcessesByName(procName)) { try { p.Kill(); } catch { } }
-
-                // Wait for file lock to release
                 Thread.Sleep(500);
 
-                // 2. DISK CHECK REPAIR (The Fix for VAC errors)
-                // We don't care if 'game.IsBoosting' is true or false. 
-                // If '_real.exe' exists on the disk, we MUST put it back.
+                // Restore file
                 if (File.Exists(realPath))
                 {
-                    if (File.Exists(exePath)) File.Delete(exePath); // Delete dummy
-                    File.Move(realPath, exePath); // Restore original
+                    if (File.Exists(exePath)) File.Delete(exePath);
+                    SafeMove(realPath, exePath);
                 }
 
                 game.IsBoosting = false;
@@ -116,46 +108,72 @@ namespace WpfApp2
             }
         }
 
+        // --- STABILITY FIXES ---
+
+        /// <summary>
+        /// Called on startup. Scans all games for "_real.exe" files. 
+        /// If found, it means the app crashed last time and left the game broken.
+        /// We must restore it immediately.
+        /// </summary>
+        public void RestoreIntegrity(List<SteamGame> games)
+        {
+            foreach (var game in games)
+            {
+                if (string.IsNullOrEmpty(game.InstallDir)) continue;
+
+                try
+                {
+                    // Look for any _real.exe in the game folder
+                    var swappedFiles = Directory.GetFiles(game.InstallDir, "*_real.exe", SearchOption.AllDirectories);
+                    foreach (var realPath in swappedFiles)
+                    {
+                        string dir = Path.GetDirectoryName(realPath);
+                        string fileName = Path.GetFileName(realPath);
+                        // Original name is "Game_real.exe" -> "Game.exe"
+                        string originalName = fileName.Replace("_real.exe", ".exe");
+                        string originalPath = Path.Combine(dir, originalName);
+
+                        Debug.WriteLine($"Restoring broken game file: {originalName}");
+
+                        // Kill any lingering cmd.exe that might be pretending to be the game
+                        string procName = Path.GetFileNameWithoutExtension(originalName);
+                        foreach (var p in Process.GetProcessesByName(procName)) { try { p.Kill(); } catch { } }
+
+                        if (File.Exists(originalPath)) File.Delete(originalPath);
+                        SafeMove(realPath, originalPath);
+                    }
+                    game.IsBoosting = false;
+                }
+                catch { }
+            }
+        }
+
         public void RepairGame(SteamGame game) => StopBoosting(game);
 
         public void SyncBoostingState(SteamGame game)
         {
-            if (string.IsNullOrEmpty(game.InstallDir)) return;
+            // We assume startup integrity check has run, so games shouldn't be boosting on load.
+            game.IsBoosting = false;
+        }
 
-            // Check if files are swapped
-            bool isSwapped = Directory.GetFiles(game.InstallDir, "*_real.exe", SearchOption.AllDirectories).Any();
-
-            if (isSwapped)
+        private void SafeMove(string source, string dest)
+        {
+            int retries = 3;
+            while (retries > 0)
             {
-                string exePath = ResolveExecutablePath(game);
-                string processName = !string.IsNullOrEmpty(exePath) ? Path.GetFileNameWithoutExtension(exePath) : null;
-
-                // Check if process is actually running
-                bool isActuallyRunning = false;
-                if (processName != null)
+                try
                 {
-                    var running = Process.GetProcessesByName(processName);
-                    isActuallyRunning = running.Length > 0;
+                    File.Move(source, dest);
+                    return;
                 }
-
-                if (isActuallyRunning)
+                catch (IOException)
                 {
-                    // It is validly running
-                    game.IsBoosting = true;
-                    WatchProcess(game, processName, isResume: true);
-                }
-                else
-                {
-                    // Files swapped but not running? This is a "stuck" state.
-                    // Revert immediately so user sees "Start Boost" instead of "Running"
-                    StopBoosting(game);
-                    game.IsBoosting = false;
+                    retries--;
+                    Thread.Sleep(1000); // Wait for file lock
                 }
             }
-            else
-            {
-                game.IsBoosting = false;
-            }
+            // Final attempt
+            File.Move(source, dest);
         }
 
         private string ResolveExecutablePath(SteamGame game)

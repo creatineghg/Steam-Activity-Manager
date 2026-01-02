@@ -1,4 +1,5 @@
-﻿using System.IO;
+﻿using System;
+using System.IO;
 using System.Text.Json;
 
 namespace WpfApp2
@@ -7,12 +8,12 @@ namespace WpfApp2
     {
         public string SteamApiKey { get; set; } = string.Empty;
         public string SteamId64 { get; set; } = string.Empty;
+        public bool EnableMica { get; set; } = true; // Renamed from EnableBlur
     }
 
     public class SettingsService
     {
-        private const string SettingsFile = "appsettings.json";
-
+        private const string SettingsFile = "settings.json";
         public AppSettings CurrentSettings { get; private set; } = new AppSettings();
 
         public SettingsService()
@@ -22,20 +23,24 @@ namespace WpfApp2
 
         public void LoadSettings()
         {
-            if (!File.Exists(SettingsFile)) return;
-
             try
             {
-                var json = File.ReadAllText(SettingsFile);
-                var loaded = JsonSerializer.Deserialize<AppSettings>(json);
-                if (loaded != null)
+                // Ensure we look in the app's base directory
+                string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, SettingsFile);
+
+                if (File.Exists(path))
                 {
-                    CurrentSettings = loaded;
+                    string json = File.ReadAllText(path);
+                    var loaded = JsonSerializer.Deserialize<AppSettings>(json);
+                    if (loaded != null)
+                    {
+                        CurrentSettings = loaded;
+                    }
                 }
             }
             catch
             {
-                CurrentSettings = new AppSettings();
+                // If loading fails, keep default new AppSettings() to prevent crash
             }
         }
 
@@ -43,8 +48,9 @@ namespace WpfApp2
         {
             try
             {
-                var json = JsonSerializer.Serialize(CurrentSettings, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(SettingsFile, json);
+                string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, SettingsFile);
+                string json = JsonSerializer.Serialize(CurrentSettings, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(path, json);
             }
             catch { }
         }

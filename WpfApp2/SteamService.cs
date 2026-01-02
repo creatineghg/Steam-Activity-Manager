@@ -10,6 +10,8 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System;
+using System.Diagnostics;
+using System.Text.RegularExpressions;
 
 namespace WpfApp2
 {
@@ -17,6 +19,11 @@ namespace WpfApp2
     {
         private const string SaveFile = "games.json";
         private readonly HttpClient _httpClient = new HttpClient();
+
+        public bool IsSteamRunning()
+        {
+            return Process.GetProcessesByName("steam").Length > 0;
+        }
 
         public async Task<List<SteamGame>> GetInstalledGamesAsync()
         {
@@ -28,9 +35,11 @@ namespace WpfApp2
                 if (string.IsNullOrEmpty(steamPath)) return games;
 
                 var libraryFolders = GetLibraryFolders(steamPath);
+
                 foreach (var libFolder in libraryFolders)
                 {
                     string steamAppsPath = Path.Combine(libFolder, "steamapps");
+
                     if (!Directory.Exists(steamAppsPath)) continue;
 
                     foreach (var file in Directory.GetFiles(steamAppsPath, "appmanifest_*.acf"))
@@ -52,7 +61,9 @@ namespace WpfApp2
         {
             try
             {
-                dynamic appState = VdfConvert.Deserialize(File.ReadAllText(filePath)).Value;
+                string content = File.ReadAllText(filePath);
+                dynamic appState = VdfConvert.Deserialize(content).Value;
+
                 string folderName = appState.installdir.ToString();
                 string fullInstallDir = Path.Combine(libraryPath, "steamapps", "common", folderName);
 
@@ -66,7 +77,48 @@ namespace WpfApp2
             catch { return null; }
         }
 
-        // --- API UPDATER ---
+        private string GetSteamPath()
+        {
+            string path = Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Valve\Steam", "InstallPath", null) as string;
+            if (!string.IsNullOrEmpty(path)) return path;
+
+            path = Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\Valve\Steam", "InstallPath", null) as string;
+            if (!string.IsNullOrEmpty(path)) return path;
+
+            path = Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamPath", null) as string;
+            if (!string.IsNullOrEmpty(path)) return path.Replace("/", "\\");
+
+            string[] commonPaths = { @"C:\Program Files (x86)\Steam", @"C:\Program Files\Steam", @"D:\Steam", @"E:\Steam" };
+            foreach (var p in commonPaths) if (Directory.Exists(p)) return p;
+
+            return null;
+        }
+
+        private HashSet<string> GetLibraryFolders(string steamPath)
+        {
+            var folders = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { steamPath };
+            string vdfPath = Path.Combine(steamPath, "steamapps", "libraryfolders.vdf");
+
+            if (File.Exists(vdfPath))
+            {
+                try
+                {
+                    string[] lines = File.ReadAllLines(vdfPath);
+                    foreach (var line in lines)
+                    {
+                        var match = Regex.Match(line, "\"path\"\\s+\"([^\"]+)\"");
+                        if (match.Success)
+                        {
+                            string p = match.Groups[1].Value.Replace("\\\\", "\\");
+                            if (Directory.Exists(p)) folders.Add(p);
+                        }
+                    }
+                }
+                catch { }
+            }
+            return folders;
+        }
+
         public async Task UpdateHoursFromApi(string key, string steamId, List<SteamGame> games)
         {
             if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(steamId)) return;
@@ -87,68 +139,153 @@ namespace WpfApp2
                         int playtime = (int)(item["playtime_forever"] ?? 0);
 
                         var localGame = games.FirstOrDefault(g => g.AppId == appId);
-                        if (localGame != null)
-                        {
-                            localGame.PlaytimeMinutes = playtime;
-                        }
+                        if (localGame != null) localGame.PlaytimeMinutes = playtime;
                     }
                 }
             }
             catch { }
         }
 
-        public async Task RefreshPlaytimeLocalAsync(List<SteamGame> games)
+        public async Task UpdateAllAchievementsCount(string key, string steamId, List<SteamGame> games)
         {
-            await Task.Run(() =>
-            {
-                string steamPath = GetSteamPath();
-                if (string.IsNullOrEmpty(steamPath)) return;
+            if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(steamId)) return;
 
+            var options = new ParallelOptions { MaxDegreeOfParallelism = 5 };
+            await Parallel.ForEachAsync(games, options, async (game, token) =>
+            {
+                await LoadAchievementCount(key, steamId, game);
+            });
+        }
+
+        private async Task LoadAchievementCount(string key, string steamId, SteamGame game)
+        {
+            try
+            {
+                string url = $"https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v0001/?appid={game.AppId}&key={key}&steamid={steamId}";
+                var response = await _httpClient.GetAsync(url);
+                if (!response.IsSuccessStatusCode) return;
+
+                var json = await response.Content.ReadAsStringAsync();
+                var node = JsonNode.Parse(json);
+                var stats = node?["playerstats"];
+
+                if (stats != null && (bool)(stats["success"] ?? false))
+                {
+                    var achievements = stats["achievements"]?.AsArray();
+                    if (achievements != null)
+                    {
+                        game.AchievementsTotal = achievements.Count;
+                        game.AchievementsEarned = achievements.Count(a => (int)(a["achieved"] ?? 0) == 1);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        public async Task<List<SteamAchievement>> GetDetailedAchievements(string key, string steamId, int appId)
+        {
+            var list = new List<SteamAchievement>();
+            if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(steamId)) return list;
+
+            try
+            {
+                // Use Case-Insensitive Dictionary to map percentages
+                var globalPercents = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
                 try
                 {
-                    string userDataPath = Path.Combine(steamPath, "userdata");
-                    if (Directory.Exists(userDataPath))
+                    string globalUrl = $"https://api.steampowered.com/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v0002/?gameid={appId}";
+                    var globalJson = await _httpClient.GetStringAsync(globalUrl);
+                    var globalNode = JsonNode.Parse(globalJson);
+                    var globalArr = globalNode?["achievementpercentages"]?["achievements"]?.AsArray();
+                    if (globalArr != null)
                     {
-                        foreach (var userDir in Directory.GetDirectories(userDataPath))
+                        foreach (var item in globalArr)
                         {
-                            string configPath = Path.Combine(userDir, "config", "localconfig.vdf");
-                            if (File.Exists(configPath)) ApplyPlaytimeStats(configPath, games);
+                            string name = item["name"]?.ToString();
+                            double pct = (double)(item["percent"] ?? 0);
+                            if (!string.IsNullOrEmpty(name)) globalPercents[name] = pct;
                         }
                     }
                 }
                 catch { }
-            });
-        }
 
-        private void ApplyPlaytimeStats(string configPath, List<SteamGame> games)
-        {
-            try
-            {
-                var content = File.ReadAllText(configPath);
-                var vdf = VdfConvert.Deserialize(content);
-                dynamic root = vdf.Value;
-                var apps = root?.Software?.Valve?.Steam?.apps;
-                if (apps == null) return;
-
-                foreach (var child in apps)
+                var schemaDict = new Dictionary<string, SteamAchievement>(StringComparer.OrdinalIgnoreCase);
+                try
                 {
-                    if (child is VProperty appProp && int.TryParse(appProp.Key, out int appId))
-                    {
-                        var game = games.FirstOrDefault(g => g.AppId == appId);
-                        if (game != null)
-                        {
-                            dynamic appData = appProp.Value;
-                            string timeStr = null;
-                            try { timeStr = appData["PlayTime"]?.ToString(); } catch { }
-                            if (timeStr == null) try { timeStr = appData["playTime"]?.ToString(); } catch { }
+                    string schemaUrl = $"https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/?key={key}&appid={appId}";
+                    var schemaJson = await _httpClient.GetStringAsync(schemaUrl);
+                    var schemaNode = JsonNode.Parse(schemaJson);
+                    var available = schemaNode?["game"]?["availableGameStats"]?["achievements"]?.AsArray();
 
-                            if (int.TryParse(timeStr, out int minutes) && minutes > game.PlaytimeMinutes)
-                                game.PlaytimeMinutes = minutes;
+                    if (available != null)
+                    {
+                        foreach (var item in available)
+                        {
+                            string apiName = item["name"]?.ToString();
+                            if (string.IsNullOrEmpty(apiName)) continue;
+
+                            var ach = new SteamAchievement
+                            {
+                                ApiName = apiName,
+                                DisplayName = item["displayName"]?.ToString() ?? apiName,
+                                Description = item["description"]?.ToString() ?? "",
+                                IconUrl = item["icon"]?.ToString() ?? "",
+                                IconGrayUrl = item["icongray"]?.ToString() ?? "",
+                                Achieved = false
+                            };
+
+                            // Map percentage immediately
+                            if (globalPercents.TryGetValue(apiName, out double val))
+                                ach.GlobalPercent = val;
+
+                            schemaDict[apiName] = ach;
+                        }
+                    }
+                }
+                catch { }
+
+                string userUrl = $"https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v0001/?appid={appId}&key={key}&steamid={steamId}";
+                var userJson = await _httpClient.GetStringAsync(userUrl);
+                var userNode = JsonNode.Parse(userJson);
+                var userAchievements = userNode?["playerstats"]?["achievements"]?.AsArray();
+
+                if (userAchievements != null)
+                {
+                    foreach (var item in userAchievements)
+                    {
+                        string apiName = item["apiname"]?.ToString();
+                        int achieved = (int)(item["achieved"] ?? 0);
+
+                        if (apiName == null) continue;
+
+                        if (schemaDict.TryGetValue(apiName, out var ach))
+                        {
+                            ach.Achieved = achieved == 1;
+                            list.Add(ach);
+                        }
+                        else
+                        {
+                            double pct = 0;
+                            if (globalPercents.TryGetValue(apiName, out double val)) pct = val;
+
+                            list.Add(new SteamAchievement
+                            {
+                                ApiName = apiName,
+                                DisplayName = apiName,
+                                Description = "Hidden or No Schema",
+                                Achieved = achieved == 1,
+                                GlobalPercent = pct
+                            });
                         }
                     }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error fetching details: {ex.Message}");
+            }
+
+            return list.OrderByDescending(x => x.Achieved).ThenBy(x => x.DisplayName).ToList();
         }
 
         public async Task<bool> CheckApiCredentials(string key, string steamId)
@@ -163,15 +300,17 @@ namespace WpfApp2
             catch { return false; }
         }
 
-        // --- ASYNC SAVING (Fixes Stutter) ---
         public async Task SaveGamesToDiskAsync(List<SteamGame> games)
         {
             try
             {
+                string dir = Path.GetDirectoryName(Path.GetFullPath(SaveFile));
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
                 string json = JsonSerializer.Serialize(games, new JsonSerializerOptions { WriteIndented = true });
                 await File.WriteAllTextAsync(SaveFile, json);
             }
-            catch { }
+            catch (Exception ex) { Debug.WriteLine($"Save failed: {ex.Message}"); }
         }
 
         public async Task<List<SteamGame>> LoadGamesFromDiskAsync()
@@ -183,42 +322,6 @@ namespace WpfApp2
                 return JsonSerializer.Deserialize<List<SteamGame>>(json) ?? new List<SteamGame>();
             }
             catch { return new List<SteamGame>(); }
-        }
-
-        private string GetSteamPath()
-        {
-            // Try 64-bit registry first
-            object regVal64 = Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Valve\Steam", "InstallPath", null);
-            if (regVal64 is string path64) return path64.Replace("/", "\\");
-
-            // Try 32-bit registry
-            object regVal32 = Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamPath", null);
-            if (regVal32 is string path32) return path32.Replace("/", "\\");
-
-            return null;
-        }
-
-        private HashSet<string> GetLibraryFolders(string steamPath)
-        {
-            var folders = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { steamPath };
-            string vdfPath = Path.Combine(steamPath, "steamapps", "libraryfolders.vdf");
-            if (File.Exists(vdfPath))
-            {
-                try
-                {
-                    var vdf = VdfConvert.Deserialize(File.ReadAllText(vdfPath));
-                    foreach (var child in vdf.Value)
-                    {
-                        if (child is VProperty prop && prop.Value is VObject obj)
-                        {
-                            var pathToken = obj["path"];
-                            if (pathToken != null) folders.Add(pathToken.ToString());
-                        }
-                    }
-                }
-                catch { }
-            }
-            return folders;
         }
     }
 }

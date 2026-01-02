@@ -1,20 +1,72 @@
-﻿using System.ComponentModel;
+﻿using System.Collections.Generic;
+using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Text.Json.Serialization;
 
 namespace WpfApp2
 {
+    // FIX: Implemented INotifyPropertyChanged so percentages update in the UI
+    public class SteamAchievement : INotifyPropertyChanged
+    {
+        public string ApiName { get; set; } = string.Empty;
+        public string DisplayName { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+
+        private bool _achieved;
+        public bool Achieved
+        {
+            get => _achieved;
+            set { _achieved = value; OnPropertyChanged(); }
+        }
+
+        public string IconUrl { get; set; } = string.Empty;
+        public string IconGrayUrl { get; set; } = string.Empty;
+
+        private double _globalPercent;
+        public double GlobalPercent
+        {
+            get => _globalPercent;
+            set { _globalPercent = value; OnPropertyChanged(); }
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+        protected void OnPropertyChanged([CallerMemberName] string? name = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        }
+    }
+
     public class SteamGame : INotifyPropertyChanged
     {
         public string Name { get; set; } = string.Empty;
         public int AppId { get; set; }
         public string InstallDir { get; set; } = string.Empty;
-
-        // Stores the specific EXE path (e.g. C:\Games\GTA5\GTA5.exe)
         public string ExecutablePath { get; set; } = string.Empty;
-
         public bool IsHidden { get; set; } = false;
         public bool IsUtility { get; set; } = false;
 
+        // --- Achievements ---
+        private int _achievementsEarned;
+        public int AchievementsEarned
+        {
+            get => _achievementsEarned;
+            set { _achievementsEarned = value; OnPropertyChanged(); OnPropertyChanged(nameof(AchievementString)); OnPropertyChanged(nameof(AchievementPercentage)); }
+        }
+
+        private int _achievementsTotal;
+        public int AchievementsTotal
+        {
+            get => _achievementsTotal;
+            set { _achievementsTotal = value; OnPropertyChanged(); OnPropertyChanged(nameof(AchievementString)); OnPropertyChanged(nameof(AchievementPercentage)); }
+        }
+
+        public string AchievementString => AchievementsTotal > 0 ? $"{AchievementsEarned} / {AchievementsTotal}" : "No Data";
+        public double AchievementPercentage => AchievementsTotal > 0 ? (double)AchievementsEarned / AchievementsTotal * 100 : 0;
+
+        [JsonIgnore]
+        public List<SteamAchievement> AchievementDetails { get; set; } = new List<SteamAchievement>();
+
+        // --- Activity ---
         private bool _isBoosting;
         public bool IsBoosting
         {
@@ -62,7 +114,5 @@ namespace WpfApp2
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
         }
-
-
     }
 }
